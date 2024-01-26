@@ -1,45 +1,57 @@
 package main
 
 import (
-	"fmt"
 	"io"
-	"net/http"
-	"sync"
+	"log"
+	"os"
+	"replicast/assets"
+	"replicast/config"
+	"replicast/luaengine"
 )
 
-var targetPorts = []string{"8081", "8082", "8083"}
-
-func replicateRequest(port string, data []byte) {
-	url := fmt.Sprintf("http://localhost:%s", port)
-	_, err := http.Post(url, "application/octet-stream", io.Reader(data))
-	if err != nil {
-		fmt.Printf("Error: %s\n", err)
-	}
-}
-
-func handler(w http.ResponseWriter, r *http.Request) {
-	if r.Body == nil {
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return
-	}
-
-	var wg sync.WaitGroup
-	for _, port := range targetPorts {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
-			replicateRequest(p, body)
-		}(port)
-	}
-	wg.Wait()
-}
-
 func main() {
-	http.HandleFunc("/", handler)
+	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
 
-	http.ListenAndServe(":8080", nil)
+	err := config.Load()
+	if err != nil {
+		log.Fatalf("error loading config: %s\n", err)
+	}
+
+	/////////////////////////////////////////////////
+
+	// read file init.lua from assets
+
+	luaInit := config.CFG.Path + "/" + config.CFG.InitFile
+
+	_, err = os.Stat(luaInit)
+	if err != nil && !os.IsNotExist(err) {
+		log.Printf("error reading %q : %s\r\n", luaInit, err)
+		return
+	}
+
+	if os.IsNotExist(err) && config.CFG.InitFile == "init.lua" {
+		f, err := os.Create(luaInit)
+		if err != nil {
+			return
+		}
+		finit, err := assets.FS.Open("init.lua")
+		if err != nil {
+			log.Printf("error reading init.lua from assets: %s\r\n", err)
+			return
+		}
+		_, err = io.Copy(f, finit)
+		if err != nil {
+			log.Printf("error writing init.lua: %s\r\n", err)
+			return
+		}
+		f.Close()
+	}
+
+	err = luaengine.Startup(luaInit)
+	if err != nil {
+		return
+	}
+
+	// TODO: start server
+
 }
