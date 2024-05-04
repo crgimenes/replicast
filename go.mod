@@ -1,5 +1,5 @@
 module replicast
 
-go 1.21.5
+go 1.22
 
 require github.com/yuin/gopher-lua v1.1.1
